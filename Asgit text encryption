@@ -1,0 +1,171 @@
+
+""" (c) Copyright 2025 - 2030 Asgit Software
+     kode by Alf Inge Fredriksen
+    epost alfinge.fredriksen2025@outlook.com""" 
+     
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
+import os
+import hashlib
+from cryptography.fernet import Fernet, InvalidToken
+import base64
+
+def derive_key(password):
+    # Hash passord med SHA512 og ta de første 32 bytes, deretter base64-encode for Fernet-nøkkel
+    sha512 = hashlib.sha512(password.encode()).digest()
+    key = base64.urlsafe_b64encode(sha512[:32])
+    return key
+
+def encrypt_data(data, key):
+    fernet = Fernet(key)
+    return fernet.encrypt(data)
+
+def decrypt_data(encrypted_data, key):
+    fernet = Fernet(key)
+    return fernet.decrypt(encrypted_data)
+
+def encrypt_text():
+    text = text_entry.get("1.0", tk.END).strip().encode()
+    password = password_entry.get().strip()
+    if not text or not password:
+        messagebox.showerror("Feil", "Fyll inn tekst og passord.")
+        return
+    key = derive_key(password)
+    encrypted = encrypt_data(text, key)
+    result_text.delete("1.0", tk.END)
+    result_text.insert(tk.END, encrypted.decode())
+
+def decrypt_text():
+    encrypted = result_text.get("1.0", tk.END).strip().encode()
+    password = password_entry.get().strip()
+    if not encrypted or not password:
+        messagebox.showerror("Feil", "Fyll inn kryptert tekst og passord.")
+        return
+    key = derive_key(password)
+    try:
+        decrypted = decrypt_data(encrypted, key)
+        text_entry.delete("1.0", tk.END)
+        text_entry.insert(tk.END, decrypted.decode())
+    except InvalidToken:
+        messagebox.showerror("Feil", "Ugyldig passord eller data.")
+
+def copy_result():
+    result = result_text.get("1.0", tk.END).strip()
+    if result:
+        root.clipboard_clear()
+        root.clipboard_append(result)
+        messagebox.showinfo("Kopiert", "Kryptert resultat er kopiert til utklippstavlen.")
+    else:
+        messagebox.showerror("Feil", "Ingen tekst å kopiere.")
+
+def exit_program():
+    if messagebox.askokcancel("Avslutt", "Vil du avslutte programmet?"):
+        root.destroy()
+
+def process_file(file_path, key, mode, progress, total_files, current_file):
+    with open(file_path, 'rb') as f:
+        data = f.read()
+    if mode == 'encrypt':
+        processed = encrypt_data(data, key)
+        output_path = file_path + '.enc'
+    else:
+        processed = decrypt_data(data, key)
+        output_path = file_path[:-4] if file_path.endswith('.enc') else file_path + '.dec'
+    with open(output_path, 'wb') as f:
+        f.write(processed)
+    current_file[0] += 1
+    progress['value'] = (current_file[0] / total_files) * 100
+    root.update_idletasks()
+
+def count_files(path):
+    if os.path.isfile(path):
+        return 1
+    count = 0
+    for root_dir, _, files in os.walk(path):
+        count += len(files)
+    return count
+
+def encrypt_decrypt_files(mode):
+    password = password_entry.get().strip()
+    if not password:
+        messagebox.showerror("Feil", "Fyll inn passord.")
+        return
+    key = derive_key(password)
+    path = filedialog.askopenfilename() if file_var.get() else filedialog.askdirectory()
+    if not path:
+        return
+
+    total_files = count_files(path)
+    if total_files == 0:
+        messagebox.showinfo("Info", "Ingen filer å prosessere.")
+        return
+
+    progress = ttk.Progressbar(root, orient='horizontal', length=300, mode='determinate')
+    progress.pack(pady=10)
+    current_file = [0]
+
+    if os.path.isfile(path):
+        process_file(path, key, mode, progress, total_files, current_file)
+    else:
+        for root_dir, _, files in os.walk(path):
+            for file in files:
+                file_path = os.path.join(root_dir, file)
+                if mode == 'decrypt' and not file_path.endswith('.enc'):
+                    continue
+                try:
+                    process_file(file_path, key, mode, progress, total_files, current_file)
+                except InvalidToken:
+                    messagebox.showerror("Feil", f"Ugyldig passord for {file_path}")
+                    progress.destroy()
+                    return
+                except Exception as e:
+                    messagebox.showerror("Feil", f"Feil ved prosessering av {file_path}: {e}")
+                    progress.destroy()
+                    return
+
+    progress.destroy()
+    messagebox.showinfo("Fullført", f"{mode.capitalize()} fullført for {total_files} filer.")
+
+# GUI oppsett
+root = tk.Tk()
+root.title("Krypterings Program")
+
+# Farge for knappene
+BUTTON_COLOR = "#4682B4"
+
+tk.Label(root, text="Asgit Software Krypterings Verktøy").pack()
+text_entry = tk.Text(root, height=8, width=50)
+text_entry.pack()
+
+tk.Label(root, text="Passord - Sha512 bits ").pack()
+password_entry = tk.Entry(root, show="*")
+password_entry.pack()
+
+tk.Button(root, text="Krypter Tekst", command=encrypt_text, bg=BUTTON_COLOR, fg="white").pack(pady=2)
+tk.Button(root, text="Dekrypter Tekst", command=decrypt_text, bg=BUTTON_COLOR, fg="white").pack(pady=2)
+tk.Button(root, text="Kopier Resultat", command=copy_result, bg=BUTTON_COLOR, fg="white").pack(pady=2)
+
+tk.Label(root, text="Resultat:").pack()
+result_text = tk.Text(root, height=8, width=50)
+result_text.pack()
+
+file_var = tk.BooleanVar(value=True)
+tk.Checkbutton(root, text="Velg Fil (avkrysset) / Mappe (ukrysset)", variable=file_var).pack()
+
+tk.Button(root, text="Krypter Fil/Mappe", command=lambda: encrypt_decrypt_files('encrypt'), bg=BUTTON_COLOR, fg="white").pack(pady=2)
+tk.Button(root, text="Dekrypter Fil/Mappe", command=lambda: encrypt_decrypt_files('decrypt'), bg=BUTTON_COLOR, fg="white").pack(pady=2)
+tk.Button(root, text="Avslutt Program", command=exit_program, bg=BUTTON_COLOR, fg="white").pack(pady=2)
+
+# Copyright og kontaktinfo
+copyright_text = """(c) Copyright 2025 - 2030 Asgit Software.
+-------------------------------------------------------
+Har du spørsmål om programmet, eller
+Krypterings algoritmen sha512 bit send 
+en epost, så skal jeg svare så fort jeg kan.
+kodet av Alf Inge Fredriksen, 7.sep 2025
+
+email alfinge.fredriksen2025@outlook.com
+--------------------------------------------------------"""
+tk.Label(root, text=copyright_text, justify="center", wraplength=400, font=("Times New Roman", 5)).pack(pady=10)
+
+root.mainloop() 
